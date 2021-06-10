@@ -211,7 +211,7 @@ class Sarsa_Agent(object):
         eval_ar=[]
         eval_sr=[]
         for num_episode in range(max_episode_num):
-            eval_iteration=10000
+            eval_iteration=1000000
             if num_episode % eval_iteration == 0 or num_episode==max_episode_num-1:
                 #开始针对averagereturn 做评估
                 head='NO4_'
@@ -264,7 +264,7 @@ class Sarsa_Agent(object):
                 if is_done and present:
                     print("到达终点")
                 
-                if self.water <=0 or self.food <= 0:
+                if self.water < 0 or self.food < 0:
                     is_done=True
                     if present:
                         print("未到达终点")
@@ -416,7 +416,7 @@ class Sarsa_Agent(object):
                     reward=0
                 
                 total_reward+=reward
-                if self.food <= 0 or self.water <=0:
+                if self.food < 0 or self.water < 0:
                     total_reward=0
                     break
                 
@@ -432,8 +432,8 @@ class Sarsa_Agent(object):
         return average_return,success_count/times
     
 
-
-training_times=100000
+'''
+training_times=12000000
 
 a=Sarsa_Agent()
 Q,loss_list,ar,sr=a.learning(lambda_=0.1, 
@@ -476,3 +476,4 @@ file.close()
 file = open(head+mid+end+tail_4, 'wb')
 pickle.dump(sr, file)
 file.close()
+'''

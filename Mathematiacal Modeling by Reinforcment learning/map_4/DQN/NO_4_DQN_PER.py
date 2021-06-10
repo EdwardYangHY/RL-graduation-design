@@ -23,11 +23,11 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 BATCH_SIZE=32
-LR=0.00001
+LR=0.0000001
 #EPSILON=0.9
 GAMMA=0.9
-TARGET_REPLACE_ITER=100        #目标更新频率/步数
-MEMORY_CAPACITY=2000
+TARGET_REPLACE_ITER=1000        #目标更新频率/步数
+MEMORY_CAPACITY=10000
 
 input_len=5
 
@@ -256,7 +256,7 @@ class DQN_agent(object):
         
     def store_transition(self,s,a,r,s_):
         #hstack是横向堆栈
-        transiton=np.hstack((s,[a,r],s_))
+        transiton=np.hstack((s,[a,r],s_)) #水平拼接
         self.memory_counter+=1
         self.memory.store(transiton)
         
@@ -292,10 +292,29 @@ class DQN_agent(object):
         torch.save(self.target_net.state_dict(),name)
         
     
-    def training(self,max_episode_num):
+    def training(self, eval_iteration,max_episode_num):
         self._init_agent()
         loss_list=[]
+        start=time.time()
+        #用于评估 average——return 和成功率的list
+        eval_ar=[]
+        eval_sr=[]
         for num_episode in range(max_episode_num):
+            eval_iteration= eval_iteration
+            if (num_episode % eval_iteration == 0 and num_episode!=0) or num_episode==max_episode_num-1:
+                #开始针对averagereturn 做评估
+                print('Evaluating')
+                head='NO4_DQN_'
+                mid=str(int(num_episode/eval_iteration)*int(eval_iteration//10000))
+                end='w_automatic_alpha_10-7.pt'
+                file_name=head+mid+end
+                self.save_model(file_name)
+                average_return,success_rate=self.evaluate_policy(1000)
+                print('Success_Rate:{}'.format(success_rate))
+                print('Average_Reward:{}'.format(average_return))
+                eval_ar.append(average_return)
+                eval_sr.append(success_rate)
+            
             #这个部分可以展示训练进度
             present_percent_0=int((num_episode*100/max_episode_num)*100)/100
             present_percent_1=int(((num_episode+1)*100/max_episode_num)*100)/100
@@ -312,7 +331,7 @@ class DQN_agent(object):
             state_0=[observation_0,weather_0,0,self.water,self.food]
             
             present=False
-            if num_episode/max_episode_num >0.9999:
+            if num_episode/max_episode_num >0.99999:
                 present=True
             
             if present:
@@ -320,20 +339,6 @@ class DQN_agent(object):
             
             for i in range(30):
                 
-                #以更大概率挖矿
-                '''
-                if observation_0==7:
-                    if random.random()<=epsilon:
-                        action_0=4
-                    else:
-                        action_0=int(self.target_net(torch.Tensor(state_0)).argmax())
-                else:
-                    if random.random()<=epsilon:
-                    #选择随机动作
-                        action_0=self.env.action_space.sample()
-                    else:
-                        action_0=int(self.target_net(torch.Tensor(state_0)).argmax())
-                '''
                 if random.random()<=epsilon:
                 #选择随机动作
                     action_0=self.env.action_space.sample()
@@ -347,25 +352,29 @@ class DQN_agent(object):
                 #两件事：修改reward和自身状态
                 reward=self.get_reward(observation_0, observation_1, weather_0)
                 
-                #修正奖励
+                #修正奖励:既然要保证最后的存活率，那么最后再给出奖励，之前全部归零
                 
                 if reward <= 0:
                     if reward==-10000:
                         #如果不是沙尘暴
-                        reward=-1
+                        reward=-0.1
                     else:
                         reward=0
                 else:
                     reward=1000/1800
                 
+                #把奖励累积起来最后发放
+                total_reward+=reward
+                reward=0
                 
                 if is_done:
-                    reward+=(self.water*2.5+self.food*5)/1800
+                    total_reward+=(self.water*2.5+self.food*5)/1800
+                    reward=total_reward #只有达到终点能访问到最终的reward
                 
                 if is_done and present:
                     print("到达终点")
                 
-                if self.water <=0 or self.food <= 0:
+                if self.water < 0 or self.food < 0:
                     is_done=True
                     if present:
                         print("未到达终点")
@@ -375,7 +384,10 @@ class DQN_agent(object):
                     if present:
                         print("未到达终点")
                     #reward -= 10000 #未到达终点的惩罚
-                total_reward += reward
+                '''
+                if reward>0:
+                    print(reward)
+                '''
                 
                 weather_1=self.get_weather()
                 state_1=[observation_1,weather_1,i+1,self.water,self.food]
@@ -384,25 +396,118 @@ class DQN_agent(object):
                 state_0=state_1
                 weather_0=weather_1
                 if is_done:
+                    '''
                     if present:
                         print("本epoch总奖励值为：{}".format(total_reward))
+                    '''
                     break
             if self.memory_counter >= MEMORY_CAPACITY:
                 max_loss=float(self.learning())
                 loss_list.append(max_loss)
-        return loss_list
+        end=time.time()
+        print("训练总时间：{}".format(end-start))
+        return loss_list,eval_ar,eval_sr
+    
+    def evaluate_policy(self,times):
+        #既可以评估当前策略，也可以评估存为pickle的策略
+        average_return=0
+        success_count=0
+        for num in range(times):
+            self._init_agent()
+            self.pro_fine=random.random()
+            total_reward=0
+            for i in range(30):
+                observation_0=self.env.state
+                weather_0=self.get_weather()
+                water=self.water
+                food=self.food
+                state_0=[observation_0,weather_0,i,water,food]
+                
+                #对于评估的策略我们也采用epsilon——greedy来保证一定的随机性
+                if random.random()<0.01:
+                    action_0=self.env.action_space.sample()
+                else:
+                    action_0=int(self.target_net(torch.Tensor(state_0).detach()).argmax())
+                
+                #action_0=int(self.target_net(torch.Tensor(state_0).detach()).argmax())
+                if weather_0==2:
+                    #沙暴天气强制不能移动
+                    action_0=4
+                observation_1,reward,is_done,info=env.step(action_0)
+                reward=self.get_reward(observation_0, observation_1, weather_0)
+                
+                '''
+                if reward >=0:
+                    reward=1000
+                elif reward==-1620:
+                    reward=-1620
+                else:
+                    reward=0
+                '''
+                
+                total_reward+=reward
+                if self.food < 0 or self.water < 0:
+                    total_reward-=10000
+                    break
+                
+                if i==29 and not is_done:
+                    total_reward-=10000
+                    break
+                
+                if is_done:
+                    total_reward=6400+self.water*2.5+self.food*5+total_reward
+                    success_count+=1
+                    print("第{}次测试成功".format(num))
+                    break
+            average_return+=total_reward/times
+        return average_return,success_count/times
+
+
+training_times=10000000
+eval_iteration=200000
 
 a=DQN_agent()
-Q=a.training(max_episode_num=100000)
-y=np.array(Q)
-x=np.arange(0,len(y),1)
-plt.plot(x, y)
-plt.show()
-a.save_model("NO4_10w_positive_alpha_10-5.pt")
+Q,ar,sr=a.training(eval_iteration= eval_iteration,max_episode_num=training_times)
+
+
 '''
 file = open('NO4_10w_positive_alpha_10-5.pickle', 'wb')
 pickle.dump(Q, file)
 file.close()
 '''
+
+y=np.array(ar)
+x=np.arange(0,len(y),1)
+plt.plot(x, y)
+plt.show()
+
+y1=np.array(sr)
+x1=np.arange(0,len(y1),1)
+plt.plot(x1, y1)
+plt.show()
+
+
+head='NO4_DQN_'
+mid=str(int(training_times/10000))
+end='w_automatic_alpha_10-7'
+tail_1='.pt'
+tail_2='_return_list.pickle'
+tail_3='_eval_ar.pickle'
+tail_4='_eval_sr.pickle'
+
+a.save_model(head+mid+end+tail_1)
+
+file = open(head+mid+end+tail_2, 'wb')
+pickle.dump(Q, file)
+file.close()
+
+
+file = open(head+mid+end+tail_3, 'wb')
+pickle.dump(ar, file)
+file.close()
+
+file = open(head+mid+end+tail_4, 'wb')
+pickle.dump(sr, file)
+file.close()
 
 

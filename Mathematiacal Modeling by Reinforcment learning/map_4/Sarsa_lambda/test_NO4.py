@@ -49,11 +49,13 @@ def present(Q_name,test_times):
     return
 
 #plot_average_return(file_name,100)
-#present(file_name, 10)
+present(file_name, 10)
 
+'''
 file_1000w='NO4_1000w_negetive_alpha_10-2.pickle'
 file_2000W='NO4_2000w_negetive_alpha_10-2.pickle'
 
 a=NO4.Sarsa_Agent()
 ar1000w,rt1=a.evaluate_policy(10000,file_1000w)
 ar2000w,rt2=a.evaluate_policy(10000,file_2000W)
+'''

@@ -13,14 +13,15 @@ import numpy as np
 import random
 from No3_map import Map
 import matplotlib.pyplot as plt
+import pickle
 
 
 BATCH_SIZE=32
-LR=0.00001
+LR=0.000001
 #EPSILON=0.9
 GAMMA=0.9
-TARGET_REPLACE_ITER=100        #目标更新频率/步数
-MEMORY_CAPACITY=2000
+TARGET_REPLACE_ITER=1000        #目标更新频率/步数
+MEMORY_CAPACITY=5000
 
 input_len=5
 #输入数据（state，a,r,s',a'）输出一个值
@@ -373,29 +374,41 @@ class DQN(object):
         model.load_state_dict(torch.load("model.pt"))
         '''
    
-    def training(self,max_episode_num):
+    def training(self,max_episode_num,eval_iteration=200000):
         self._init_agent()
         self.pro_fine=random.random()
         loss_list=[]
-        count_mining=0
+        #count_mining=0
+        
+        eval_ar=[]
+        eval_sr=[]
         for num_episode in range(max_episode_num):
-            
+            eval_iteration=eval_iteration
+            if num_episode % eval_iteration == 0 or num_episode==max_episode_num-1:
+                #开始针对averagereturn 做评估
+                print('评估开始')
+                head='NO3_'
+                mid=str(int(num_episode/eval_iteration)*int(eval_iteration//10000))
+                end='w_automatic_DQN_54.pickle'
+                file_name=head+mid+end
+                self.save_model(file_name)
+                average_return,success_rate=self.evaluate_policy(1000)
+                print('平均生存率：{}'.format(success_rate))
+                print('平均收益：{}'.format(average_return))
+                eval_ar.append(average_return)
+                eval_sr.append(success_rate)
+                print('评估结束')
+                
+            present_percent_0=int((num_episode*100/max_episode_num)*100)/100
+            present_percent_1=int(((num_episode+1)*100/max_episode_num)*100)/100
+            if present_percent_0!=present_percent_1:
+                print("训练进度：{:.2f}%".format(present_percent_0))
             #首先做一个逐步下降但是存在下界的epsilon
             epsilon=1-num_episode/max_episode_num
             #print(epsilon)
             epsilon_lowerbound=0.1
             if epsilon <= epsilon_lowerbound:
                 epsilon=epsilon_lowerbound
-            
-            '''
-            #随机更多的epsilon，探索更多，但是收敛更慢
-            if num_episode>=max_episode_num*0.99:
-                epsilon=0.1
-            else:
-                epsilon=0.9
-            '''
-            
-            print("训练进度：{:.2f}%".format(num_episode*100/max_episode_num))
             
             self._init_agent()
             total_reward=0
@@ -408,32 +421,28 @@ class DQN(object):
             for i in range(10):
                 pos_0=self.pos #纯展示用
                 pos_1=self.choose_action_epsilon(state_0, epsilon)
-                #pos_1=self.choose_action_epsilon(state_0, 1)
+                
                 if num_episode>=max_episode_num*0.99:
                     print("第{}天，天气{},从{}到{}".format(i,weather_0,pos_0,pos_1))
                 pos_1,reward,is_done=self.act(pos_1, weather_0)
-                reward=reward/100
-                '''
-                #具有正奖励的奖励设置
-                #对reward也进行归一化处理
-                if pos_0==pos_1 and pos_1==8:
-                    reward=200/1800
-                    count_mining+=1
-                elif pos_1==12:
-                    reward=(self.water*2.5+self.food*5)/1800
+                
+                if reward==117.5 or reward==-2.5:
+                    reward=200
                 else:
                     reward=0
-                '''
+                total_reward+=reward
                 
-                #负奖励，惩罚机制的奖励设置
-                if self.water <=0 or self.food <= 0:
-                    reward=reward-5
+                if is_done:
+                    reward=(6400+self.water*2.5+self.food*5+total_reward)/1000
+                
+                if self.water < 0 or self.food < 0:
+                    reward=0
                     is_done=True
                 if i==9 and is_done==False:
-                    reward=reward-5
+                    reward=0
                     is_done=True
                 
-                total_reward+=reward
+
                 
                 weather_1=self.get_weather()
                 if pos_1==-1:
@@ -454,38 +463,95 @@ class DQN(object):
                 max_loss=float(self.new_learning())
                 loss_list.append(max_loss)
         
-        return loss_list
+        return loss_list,eval_ar,eval_sr
+    
+    def evaluate_policy(self,times,model_dict=None):
+        if model_dict is not None:
+            self.target_net.load_state_dict(torch.load(model_dict))
+            self.eval_net.load_state_dict(torch.load(model_dict))
+            self.target_net.eval()
+            self.eval_net.eval()
+        average_return=0
+        success_count=0
+        for num in range(times):
+            print("第{}次评估".format(num))
+            self._init_agent()
+            self.pro_fine=random.random()
+            total_reward=0
+            for i in range(10):
+                pos_0=self.pos
+                weather_0=self.get_weather()
+                water=self.water
+                food=self.food
+                state_0=[pos_0,weather_0,i,water,food]
                 
+                pos_1=self.choose_action_epsilon(state_0, 0)
+                
+                pos_1,reward,is_done=self.act(pos_1, weather_0)
+                
+                if reward==117.5 or reward==-2.5:
+                    reward=200
+                else:
+                    reward=0
+                total_reward+=reward
+                
+                if self.food < 0 or self.water <0:
+                    total_reward=0
+                    break
+                
+                if i==9 and not is_done:
+                    total_reward=0
+                    break
+                
+                if is_done:
+                    total_reward=6400+self.water*2.5+self.food*5+total_reward
+                    success_count+=1
+                    break
+            average_return+=total_reward/times
+        return average_return,success_count/times
                 
 
-b=DQN()
-'''
-Q=a.test(pro_fine=0.6,
-           lambda_=0.01,
-           gamma=0.8,
-           alpha=0.1,
-           max_episode_num=4000)
-'''
-#Q_=a.learning()
+a=DQN()
 
-Q=b.training(max_episode_num=10000)
-y=np.array(Q)
+training_times=100000
+eval_iteration=10000
+
+Q,ar,sr=a.training(max_episode_num=training_times,eval_iteration=eval_iteration)
+
+y=np.array(ar)
 x=np.arange(0,len(y),1)
 plt.plot(x, y)
 plt.show()
-#b.save_model("DQN_PER_negetive_1W.pt")
+
+y1=np.array(sr)
+x1=np.arange(0,len(y1),1)
+plt.plot(x1, y1)
+plt.show()
 
 
+head='NO4_DQN_'
+mid=str(int(training_times/10000))
+end='w_automatic_alpha_10-7'
+tail_1='.pt'
+tail_2='_return_list.pickle'
+tail_3='_eval_ar.pickle'
+tail_4='_eval_sr.pickle'
 
-'''
-x=[0,0,0,1,1,3]
-x=torch.Tensor(x)
-hh=a.eval_net.forward(x)
+a.save_model(head+mid+end+tail_1)
 
-x=np.array([10,0,0,240,240])
-b=a.choose_action(x)
+file = open(head+mid+end+tail_2, 'wb')
+pickle.dump(Q, file)
+file.close()
 
-'''
+
+file = open(head+mid+end+tail_3, 'wb')
+pickle.dump(ar, file)
+file.close()
+
+file = open(head+mid+end+tail_4, 'wb')
+pickle.dump(sr, file)
+file.close()
+
 
 
 

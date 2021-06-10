@@ -8,6 +8,7 @@ Created on Wed Apr  7 13:13:05 2021
 import No3_Sarsa_Lambda_SearchingModification as NO3
 import pickle
 import matplotlib.pyplot as plt
+from No3_map import Map
 import numpy as np
 
 def plot_average_return(file_name,iteration):
@@ -35,4 +36,6 @@ def plot_average_return(file_name,iteration):
     return
 
 file_name='NO3_1500w_negetive_alpha_10-2_return_list.pickle'
-plot_average_return(file_name, 100000)
+#plot_average_return(file_name, 100000)
+a=NO3.sarsa_agent(Map)
+a.reload('NO_3_1500w_automatic_alpha_10-2.pickle')

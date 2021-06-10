@@ -212,7 +212,7 @@ class Sarsa_Agent(object):
                 if is_done and present:
                     print("到达终点")
                 
-                if self.water <=0 or self.food <= 0:
+                if self.water < 0 or self.food < 0:
                     is_done=True
                     if present:
                         print("未到达终点")

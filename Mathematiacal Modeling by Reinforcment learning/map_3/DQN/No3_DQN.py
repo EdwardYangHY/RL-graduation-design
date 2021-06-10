@@ -290,7 +290,7 @@ class DQN(object):
                 food=self.food
                 
                 #还要判断是否花光了补给！
-                if self.water<=0 or self.food<=0:
+                if self.water<0 or self.food<0:
                     reward=reward-1000
                     #注意：想要展现出效果，需要将这个-1000的反馈值传递给Q表和E表！
                     theta=reward  #到达终点后没有下一个状态了，所以直接用reward传值给theta
