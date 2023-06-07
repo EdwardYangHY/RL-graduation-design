@@ -2,3 +2,5 @@
  reinforcement learning
 Using mostly numpy and pytorch
 Gym to display my enviroment
+
+For demo, please refer to
